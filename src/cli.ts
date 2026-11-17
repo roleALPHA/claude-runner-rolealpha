@@ -27,7 +27,26 @@ function number(name: string): number | undefined {
 	return n;
 }
 
+const CLOUD_PROVIDERS = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
+
+/**
+ * The runner works unattended for an organisation, which Anthropic's terms put on API keys.
+ * It refuses to start on a Claude subscription login alone; an API key also takes precedence
+ * over a subscription token in the SDK, so a login on the machine is never used.
+ */
+export function claudeAccess(env: NodeJS.ProcessEnv): string {
+	if (env.ANTHROPIC_API_KEY) return 'api_key';
+	if (env.ANTHROPIC_AUTH_TOKEN) return 'auth_token';
+	const cloud = CLOUD_PROVIDERS.find((name) => env[name] === '1' || env[name] === 'true');
+	if (cloud) return cloud;
+	throw new Error(
+		'No Claude API access: set ANTHROPIC_API_KEY (or CLAUDE_CODE_USE_BEDROCK / _VERTEX / _FOUNDRY). ' +
+			'A Claude subscription login is not supported for unattended runs, see README.',
+	);
+}
+
 export function configFromEnv(): RunnerConfig {
+	claudeAccess(process.env);
 	return {
 		account: {
 			tokenUrl: env('ROLEALPHA_TOKEN_URL'),

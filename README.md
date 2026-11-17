@@ -62,9 +62,27 @@ runner                                      roleALPHA
 
 ### 2. Where the runner runs
 
-Requirements: **Node.js 22.12 or later** and access to Claude: an Anthropic API key, or any
-other credential the Claude Agent SDK accepts (Amazon Bedrock, Google Vertex AI, Microsoft
-Foundry; see the SDK docs).
+Requirements: **Node.js 22.12 or later** and access to Claude through an **API key**: an
+Anthropic API key from the [Claude Console](https://console.anthropic.com), or Claude on
+Amazon Bedrock, Google Vertex AI or Microsoft Foundry (see the SDK docs).
+
+#### Why an API key and not a Claude subscription
+
+The runner works unattended, on a server or a schedule, for an organisation. Anthropic's
+terms put that on API keys:
+
+- The Agent SDK docs: unless previously approved, third-party products built on the SDK may
+  not offer claude.ai login or subscription rate limits; use API key authentication
+  ([Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview),
+  [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)).
+- The Consumer Terms allow access "through automated or non-human means" only via an API
+  key or where Anthropic explicitly permits it
+  ([Consumer Terms](https://www.anthropic.com/legal/consumer-terms)).
+
+Technically the SDK would also pick up a subscription login (`claude setup-token`,
+`CLAUDE_CODE_OAUTH_TOKEN`). This runner does not support that, and roleALPHA never asks for,
+stores or forwards Claude credentials. Check the linked pages yourself: terms change, and
+this is not legal advice.
 
 ```bash
 npm install -g @rolealpha/claude-runner-rolealpha
@@ -92,7 +110,7 @@ with `chmod 600`, never in the repository.
 | `ROLEALPHA_CLIENT_SECRET` | yes | Client secret of the service account |
 | `ROLEALPHA_ORGANISATION` | yes | Name or ID of your organisation in roleALPHA |
 | `ROLEALPHA_CLIENT_AUTH` | no | `header` (default, HTTP Basic) or `body` |
-| `ANTHROPIC_API_KEY` | yes* | *or another credential the Agent SDK accepts |
+| `ANTHROPIC_API_KEY` | yes* | *or the variables for Bedrock, Vertex AI or Foundry; not a subscription token |
 | `CLAUDE_MODEL` | no | Default `claude-opus-5-5` |
 | `RUNNER_MAX_TURNS` | no | Default `40` |
 | `RUNNER_MAX_BUDGET_USD` | no | Hard cost cap per run, default `2` |
