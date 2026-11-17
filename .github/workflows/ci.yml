@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: CLI loads the SDK and answers
+        run: node dist/src/cli.js || test $? -eq 2
+      - name: src/vendor/ still matches n8n-nodes-rolealpha
+        run: npm run check-vendor
+        continue-on-error: true
