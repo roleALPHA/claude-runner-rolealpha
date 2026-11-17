@@ -137,7 +137,7 @@ export async function runAgent(cfg: RunnerConfig, input: RunInput, deps: RunnerD
 	// Refusals (agent paused, budget spent, not bound …) throw here, before Claude starts.
 	let run = await tokens.runToken(cfg.account, input.agentUuid, runId);
 
-	const client = new McpClient(transport(cfg.mcpUrl, run.token), '@rolealpha/claude-runner');
+	const client = new McpClient(transport(cfg.mcpUrl, run.token), '@rolealpha/claude-runner-rolealpha');
 	const bundle = await getAgentContext(client, cfg.organisation, run.agent.uuid, 'caller');
 	const systemPrompt = buildSystemPrompt({ bundle, extraRules: [...runnerRules(cfg.organisation), ...(cfg.extraRules ?? [])] });
 	const agent = { uuid: run.agent.uuid, name: run.agent.name ?? bundle.agent.name ?? null };

@@ -1,4 +1,4 @@
-# @rolealpha/claude-runner
+# @rolealpha/claude-runner-rolealpha
 
 **Run roleALPHA agents with Claude.** The agent's purpose, instructions, roles and guardrails
 come from roleALPHA at run time, every time. Claude sees exactly what the agent may see, and
@@ -67,14 +67,14 @@ other credential the Claude Agent SDK accepts (Amazon Bedrock, Google Vertex AI,
 Foundry; see the SDK docs).
 
 ```bash
-npm install -g @rolealpha/claude-runner
+npm install -g @rolealpha/claude-runner-rolealpha
 ```
 
 Or from source:
 
 ```bash
-git clone https://github.com/roleALPHA/rolealpha-claude-runner.git
-cd rolealpha-claude-runner
+git clone https://github.com/roleALPHA/claude-runner-rolealpha.git
+cd claude-runner-rolealpha
 npm ci
 npm run build
 ```
@@ -97,7 +97,7 @@ with `chmod 600`, never in the repository.
 | `RUNNER_MAX_TURNS` | no | Default `40` |
 | `RUNNER_MAX_BUDGET_USD` | no | Hard cost cap per run, default `2` |
 
-Example `/etc/rolealpha-claude-runner.env`:
+Example `/etc/claude-runner-rolealpha.env`:
 
 ```bash
 ROLEALPHA_TOKEN_URL=https://app.rolealpha.app/api/auth/oauth/token
@@ -111,12 +111,12 @@ ANTHROPIC_API_KEY=sk-ant-…
 ## Running it
 
 ```bash
-rolealpha-claude-runner <agent-uuid> "<task>" [--run-id <id>]
+claude-runner-rolealpha <agent-uuid> "<task>" [--run-id <id>]
 ```
 
 ```bash
-set -a; . /etc/rolealpha-claude-runner.env; set +a
-rolealpha-claude-runner 3f6c…-…-9a1e "Check which open roles in Sales have no holder and propose one draft per gap."
+set -a; . /etc/claude-runner-rolealpha.env; set +a
+claude-runner-rolealpha 3f6c…-…-9a1e "Check which open roles in Sales have no holder and propose one draft per gap."
 ```
 
 The agent UUID is on the agent's page in roleALPHA. The run ID defaults to
@@ -159,8 +159,8 @@ Description=roleALPHA agent: recruiting assistant
 
 [Service]
 Type=oneshot
-EnvironmentFile=/etc/rolealpha-claude-runner.env
-ExecStart=/usr/bin/rolealpha-claude-runner 3f6c…-…-9a1e "Daily check of open roles in Sales"
+EnvironmentFile=/etc/claude-runner-rolealpha.env
+ExecStart=/usr/bin/claude-runner-rolealpha 3f6c…-…-9a1e "Daily check of open roles in Sales"
 SuccessExitStatus=75
 DynamicUser=yes
 NoNewPrivileges=yes
@@ -185,7 +185,7 @@ an error, the agent is just not supposed to run now.
 
 ```ts
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { runAgent } from '@rolealpha/claude-runner';
+import { runAgent } from '@rolealpha/claude-runner-rolealpha';
 
 const result = await runAgent(
   {

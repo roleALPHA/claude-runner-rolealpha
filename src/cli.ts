@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * rolealpha-claude-runner <agent-uuid> "<task>" [--run-id <id>]
+ * claude-runner-rolealpha <agent-uuid> "<task>" [--run-id <id>]
  *
  * Prints the run result as JSON on stdout. Exit codes:
  *   0  done
@@ -50,7 +50,7 @@ async function main(argv: string[]): Promise<number> {
 	if (at >= 0) [, runId] = args.splice(at, 2);
 	const [agentUuid, task] = args;
 	if (!agentUuid || !task) {
-		console.error('Usage: rolealpha-claude-runner <agent-uuid> "<task>" [--run-id <id>]');
+		console.error('Usage: claude-runner-rolealpha <agent-uuid> "<task>" [--run-id <id>]');
 		return 2;
 	}
 
