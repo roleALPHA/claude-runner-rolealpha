@@ -1,6 +1,6 @@
 {
   "name": "@rolealpha/claude-runner-rolealpha",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Run AI agents whose roles, duties and guardrails live in roleALPHA with the Claude Agent SDK",
   "keywords": ["rolealpha", "claude", "claude-agent-sdk", "agents", "mcp", "governance"],
   "license": "MIT",

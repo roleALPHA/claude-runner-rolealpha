@@ -21,7 +21,8 @@ runner                                      roleALPHA
                                        ◀──  run token (15 min) | refusal code
   3. get_agent_context                 ──▶  purpose, instructions, roles, guardrails
   4. Claude works over /api/mcp        ──▶  agent's view; writing = drafts
-  5. every 12 min: swap again          ──▶  status and budget checked again
+  5. every 12 min: report usage, swap  ──▶  status and budget checked again
+  6. at the end: report the run's usage ──▶  counts for the agent's budget
 ```
 
 1. The runner fetches an **account token** for its service account.
@@ -34,6 +35,9 @@ runner                                      roleALPHA
 4. **Claude runs** with roleALPHA as its only tool source.
 5. Runs longer than 15 minutes swap the token again with the same run ID. If roleALPHA
    refuses now (the agent was retired, unbound or ran out of budget), the run stops.
+6. The runner **reports the run's usage** to roleALPHA (tokens, model, cost) with the service
+   account — before every swap and at the end. Each report replaces the previous one for the
+   run. Once the agent's budget for the period is spent, the next run is refused.
 
 ## What Claude can and cannot do in a run
 
@@ -44,7 +48,7 @@ runner                                      roleALPHA
 | **Visibility** | The agent's, never more. No admin bypass, even if the service account has admin roles. |
 | **Writing** | Drafts only. A run cannot approve, administer or vote. |
 | **Audit** | roleALPHA records "agent (account)" and the run ID on every change. |
-| **Cost** | Capped per run (`RUNNER_MAX_BUDGET_USD`, default 2 USD) and in turns (`RUNNER_MAX_TURNS`, default 40). |
+| **Cost** | Capped per run (`RUNNER_MAX_BUDGET_USD`, default 2 USD) and in turns (`RUNNER_MAX_TURNS`, default 40). Reported to roleALPHA for the agent's budget per period. |
 
 ## Setting it up
 
@@ -114,6 +118,7 @@ with `chmod 600`, never in the repository.
 | `CLAUDE_MODEL` | no | Default `claude-opus-5-5` |
 | `RUNNER_MAX_TURNS` | no | Default `40` |
 | `RUNNER_MAX_BUDGET_USD` | no | Hard cost cap per run, default `2` |
+| `RUNNER_PRICES` | no | Your prices per million tokens, as JSON or a path to a JSON file (see [Cost and budget](#cost-and-budget)). Without it the SDK's list price is reported. |
 
 Example `/etc/claude-runner-rolealpha.env`:
 
@@ -150,9 +155,33 @@ The result goes to stdout as JSON:
   "status": "done",
   "text": "I proposed two drafts …",
   "costUsd": 0.41,
-  "numTurns": 9
+  "numTurns": 9,
+  "usageReported": true
 }
 ```
+
+`usageReported: false` with `usageError` (a roleALPHA code such as `planung_nicht_lizenziert`)
+means roleALPHA did not take the usage report. The run itself is not affected.
+
+### Cost and budget
+
+roleALPHA does not price runs: with your own Anthropic key (or Bedrock, Vertex AI, Foundry)
+the price depends on your contract, and only you know it. So the runner calculates the cost
+and reports it.
+
+- With **`RUNNER_PRICES`** the run is priced from your table (reported as `price_kind: tabelle`):
+
+  ```json
+  { "currency": "USD", "asOf": "2026-11-20",
+    "models": { "claude-opus-5-5": { "input": 4, "cacheRead": 0.4, "cacheWrite": 5, "output": 20 } } }
+  ```
+
+  Prices per million tokens; `input` is for uncached input tokens. A dated model name uses the
+  row of its model (`claude-opus-5-5-20261101` → `claude-opus-5-5`).
+- Without a table the runner reports the **SDK's list price** (`total_cost_usd`, marked
+  `listenpreis`). roleALPHA counts it but shows that it is a list price, not your price.
+- Only reports in the organisation's budget currency (USD by default, set in roleALPHA) count
+  against the budget. A run without a price counts as "without a price", never as 0.
 
 ### Exit codes
 
@@ -221,11 +250,9 @@ run before it starts.
 
 ## Limits
 
-- **The budget in roleALPHA does not see this runner's cost.** roleALPHA blocks a run when the
-  agent's budget for the period is spent, but it only knows the spend a runner reports, and
-  today the reporting endpoint accepts internal calls only. So the agent page shows "usage not
-  reported" and the budget never runs out. Until that changes, rely on `RUNNER_MAX_BUDGET_USD`
-  and your Anthropic spend limits. The same holds for the n8n nodes.
+- **The budget is checked at every token swap, not at every call.** A run that crosses the
+  budget ends at its next swap (after 15 minutes at the latest). `RUNNER_MAX_BUDGET_USD` stays
+  the hard cap per run.
 - **Token swap mid-run is not tested against a live server yet.** Runs under 15 minutes never
   need it.
 - **No steps or duties yet.** The n8n nodes can run an agent on one step of a value stream,

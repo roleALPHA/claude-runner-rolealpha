@@ -22,6 +22,7 @@ import { AgentRunError, AgentRunTokens, type FormPost, type FunctionAccount, typ
 import { McpClient, type Transport } from './vendor/mcp';
 import { getAgentContext } from './vendor/agents';
 import { buildSystemPrompt } from './vendor/prompt';
+import { costOf, type PriceTable, type Usage } from './vendor/pricing';
 
 export { AgentRunError };
 
@@ -42,6 +43,11 @@ export interface RunnerConfig {
 	renewEveryMs?: number;
 	/** Rules added to the system prompt after roleALPHA's own. */
 	extraRules?: string[];
+	/**
+	 * Your prices per million tokens (RUNNER_PRICES). With your own key only you know them;
+	 * roleALPHA does not price runs. Without a table the SDK's list price is reported, marked as such.
+	 */
+	prices?: PriceTable;
 }
 
 export interface RunnerDeps {
@@ -70,6 +76,30 @@ export interface RunResult {
 	numTurns?: number;
 	/** Why a stopped run stopped: an SDK result subtype or a roleALPHA refusal code. */
 	reason?: string;
+	/** Whether roleALPHA took the final usage report (it counts for the agent's budget). */
+	usageReported?: boolean;
+	/** Why the usage report failed: a roleALPHA refusal code or an error. */
+	usageError?: string;
+}
+
+type SdkUsage = { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null };
+
+function addUsage(total: Usage, u: SdkUsage | undefined): void {
+	if (!u) return;
+	total.inputTokens = (total.inputTokens ?? 0) + (u.input_tokens ?? 0);
+	total.outputTokens = (total.outputTokens ?? 0) + (u.output_tokens ?? 0);
+	total.cacheReadTokens = (total.cacheReadTokens ?? 0) + (u.cache_read_input_tokens ?? 0);
+	total.cacheWriteTokens = (total.cacheWriteTokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+}
+
+/** The cost of a run: own price table first, else the SDK's list price (marked), else none. */
+export function pricedUsage(cfg: Pick<RunnerConfig, 'prices'>, model: string, usage: Usage, sdkCostUsd: number | undefined) {
+	const own = cfg.prices ? costOf(usage, model, cfg.prices) : null;
+	if (own) return own;
+	if (typeof sdkCostUsd === 'number' && Number.isFinite(sdkCostUsd)) {
+		return { cost: sdkCostUsd, currency: 'USD', priceKind: 'listenpreis' as const, priceSource: 'claude-agent-sdk' };
+	}
+	return null;
 }
 
 export const DEFAULT_MODEL = 'claude-opus-5-5';
@@ -153,12 +183,22 @@ export async function runAgent(cfg: RunnerConfig, input: RunInput, deps: RunnerD
 
 	const q = deps.query({ prompt: prompt(), options: runOptions(cfg, systemPrompt, run.token) });
 
+	const model = cfg.model ?? DEFAULT_MODEL;
+	// The run's running total — reported at every swap and at the end; each report replaces the last.
+	const usage: Usage = {};
+	const report = async (sdkCostUsd?: number) => {
+		const priced = pricedUsage(cfg, model, usage, sdkCostUsd);
+		return tokens.reportUsage(cfg.account, { agentUuid: agent.uuid, runId, model, ...usage, ...(priced ?? {}) }, run.usageUrl);
+	};
+
 	let stopReason: string | undefined;
 	let renewing = false;
 	const renew = setInterval(async () => {
 		if (renewing || stopReason) return;
 		renewing = true;
 		try {
+			// Report the usage so far first: the fresh swap checks the budget against it.
+			await report().catch(() => undefined);
 			// A fresh swap checks the agent's status and budget again.
 			run = await tokens.runToken(cfg.account, agent.uuid, runId, { fresh: true });
 			const r = await q.setMcpServers({ [SERVER]: mcpServer(cfg.mcpUrl, run.token) });
@@ -175,6 +215,7 @@ export async function runAgent(cfg: RunnerConfig, input: RunInput, deps: RunnerD
 	let result: SDKResultMessage | undefined;
 	try {
 		for await (const message of q) {
+			if (message.type === 'assistant') addUsage(usage, (message.message as { usage?: SdkUsage }).usage);
 			if (message.type === 'result') {
 				result = message;
 				close();
@@ -185,7 +226,21 @@ export async function runAgent(cfg: RunnerConfig, input: RunInput, deps: RunnerD
 		close();
 	}
 
-	const base = { runId, agent, costUsd: result?.total_cost_usd, numTurns: result?.num_turns };
+	// The final report: the result's totals replace the running sum (they are the SDK's own count).
+	if (result?.usage) {
+		for (const k of Object.keys(usage) as Array<keyof Usage>) delete usage[k];
+		addUsage(usage, result.usage as SdkUsage);
+	}
+	let usageReported = false;
+	let usageError: string | undefined;
+	try {
+		await report(result?.total_cost_usd);
+		usageReported = true;
+	} catch (e) {
+		// Reporting never breaks the run it reports.
+		usageError = e instanceof AgentRunError ? e.code : e instanceof Error ? e.message : String(e);
+	}
+	const base = { runId, agent, costUsd: result?.total_cost_usd, numTurns: result?.num_turns, usageReported, ...(usageError ? { usageError } : {}) };
 	if (stopReason) return { ...base, status: 'stopped', reason: stopReason };
 	if (!result) return { ...base, status: 'stopped', reason: 'no_result' };
 	if (result.subtype !== 'success' || result.is_error) return { ...base, status: 'stopped', reason: result.subtype === 'success' ? 'api_error' : result.subtype };
