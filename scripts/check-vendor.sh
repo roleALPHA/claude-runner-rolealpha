@@ -3,7 +3,7 @@
 set -e
 REF="${1:-main}"
 STATUS=0
-for f in agentRun mcp prompt graph share agents; do
+for f in agentRun mcp prompt graph share agents pricing memory knowledge waits; do
   if ! curl -fsSL "https://raw.githubusercontent.com/roleALPHA/n8n-nodes-rolealpha/$REF/lib/$f.ts" | diff -q - "src/vendor/$f.ts" >/dev/null; then
     echo "differs: src/vendor/$f.ts (upstream lib/$f.ts @ $REF)"; STATUS=1
   fi

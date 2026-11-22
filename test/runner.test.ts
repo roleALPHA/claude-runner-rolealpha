@@ -20,16 +20,21 @@ const bundle = {
 };
 
 /** Fake token endpoint: a queue of exchange replies; client_credentials always works. */
-function tokenServer(exchanges: Array<{ status: number; body: unknown }>) {
+function tokenServer(exchanges: Array<{ status: number; body: unknown }>, usageReply: { status: number; body: unknown } = { status: 200, body: { run_id: 'r', period_year: 2026, period: '2026-11', counted: true, budget_currency: 'USD' } }) {
 	const calls: Array<{ form: Record<string, string>; headers: Record<string, string> }> = [];
+	const usage: Array<{ url: string; form: Record<string, string>; headers: Record<string, string> }> = [];
 	let n = 0;
-	const post: FormPost = async (_url, form, headers) => {
+	const post: FormPost = async (url, form, headers) => {
+		if (!form.grant_type) {
+			usage.push({ url, form, headers });
+			return { status: usageReply.status, body: JSON.stringify(usageReply.body) };
+		}
 		calls.push({ form, headers });
 		if (form.grant_type === 'client_credentials') return { status: 200, body: JSON.stringify({ access_token: 'account', expires_in: 3600 }) };
 		const reply = exchanges[Math.min(n++, exchanges.length - 1)];
 		return { status: reply.status, body: JSON.stringify(reply.body) };
 	};
-	return { post, calls };
+	return { post, calls, usage };
 }
 
 const runToken = (token: string) => ({ status: 200, body: { access_token: token, expires_in: 900, agent: { uuid: AGENT, name: 'Recruiting assistant' } } });
@@ -90,7 +95,14 @@ test('runs the agent under its run token, with roleALPHA as the only tool source
 
 	const r = await runAgent(cfg, { agentUuid: AGENT, task: 'Check open roles', runId: 'ci-42' }, { query, post: tokens.post, transport: mcp.transport });
 
-	assert.deepEqual(r, { runId: 'ci-42', agent: { uuid: AGENT, name: 'Recruiting assistant' }, status: 'done', text: 'Proposed two drafts.', costUsd: 0.41, numTurns: 9 });
+	assert.deepEqual(r, { runId: 'ci-42', agent: { uuid: AGENT, name: 'Recruiting assistant' }, status: 'done', text: 'Proposed two drafts.', costUsd: 0.41, numTurns: 9, usageReported: true });
+
+	// The usage of the run goes to roleALPHA with the ACCOUNT token; without own prices the SDK's
+	// list price, marked as such.
+	assert.equal(tokens.usage.length, 1);
+	assert.equal(tokens.usage[0].url, 'https://ra.test/api/agent-lauf/verbrauch');
+	assert.equal(tokens.usage[0].headers.Authorization, 'Bearer account');
+	assert.deepEqual(tokens.usage[0].form, { agent_uuid: AGENT, run_id: 'ci-42', model: 'claude-opus-5-5', cost: '0.41', currency: 'USD', price_kind: 'listenpreis', price_source: 'claude-agent-sdk' });
 
 	const exchange = tokens.calls.find((c) => c.form.grant_type?.includes('token-exchange'));
 	assert.equal(exchange?.form.agent_uuid, AGENT);
@@ -177,4 +189,27 @@ test('defaults: Opus 5.5, 40 turns, 2 USD per run', () => {
 	assert.equal(o.model, 'claude-opus-5-5');
 	assert.equal(o.maxTurns, 40);
 	assert.equal(o.maxBudgetUsd, 2);
+});
+
+test('usage: own price table prices the result totals; the SDK list price is not used then', async () => {
+	const tokens = tokenServer([{ status: 200, body: { ...runToken('run-1').body, usage_url: 'https://ra.test/usage' } }]);
+	const { query } = fakeQuery({ ...success, usage: { input_tokens: 12_000, output_tokens: 1_800, cache_read_input_tokens: 30_000, cache_creation_input_tokens: 0 } });
+	const prices = { currency: 'USD', asOf: '2026-11-20', models: { 'claude-opus-5-5': { input: 4, cacheRead: 0.4, cacheWrite: 5, output: 20 } } };
+	const r = await runAgent({ ...cfg, prices }, { agentUuid: AGENT, task: 't', runId: 'ci-43' }, { query, post: tokens.post, transport: mcpServer().transport });
+	assert.equal(r.usageReported, true);
+	assert.equal(tokens.usage[0].url, 'https://ra.test/usage', 'the usage_url of the exchange');
+	assert.deepEqual(tokens.usage[0].form, {
+		agent_uuid: AGENT, run_id: 'ci-43', model: 'claude-opus-5-5',
+		input_tokens: '12000', cache_read_tokens: '30000', cache_write_tokens: '0', output_tokens: '1800',
+		cost: '0.096', currency: 'USD', price_kind: 'tabelle', price_source: 'runner-tabelle 2026-11-20',
+	});
+});
+
+test('usage: a refused report never breaks the run; the result says why', async () => {
+	const tokens = tokenServer([runToken('run-1')], { status: 409, body: { error: 'planung_nicht_lizenziert' } });
+	const { query } = fakeQuery(success);
+	const r = await runAgent(cfg, { agentUuid: AGENT, task: 't', runId: 'ci-44' }, { query, post: tokens.post, transport: mcpServer().transport });
+	assert.equal(r.status, 'done');
+	assert.equal(r.usageReported, false);
+	assert.equal(r.usageError, 'planung_nicht_lizenziert');
 });

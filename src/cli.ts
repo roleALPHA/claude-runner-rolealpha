@@ -9,7 +9,9 @@
  *  78  roleALPHA says: configuration or admin action needed (not bound, no right, unknown agent …)
  */
 
+import { readFileSync } from 'fs';
 import { AgentRunError, runAgent, type QueryFn, type RunnerConfig } from './runner';
+import { parsePriceTable, type PriceTable } from './vendor/pricing';
 
 const TRY_LATER = new Set(['pause', 'pauseUntilNextPeriod', 'retryLater']);
 
@@ -45,6 +47,13 @@ export function claudeAccess(env: NodeJS.ProcessEnv): string {
 	);
 }
 
+/** RUNNER_PRICES: a JSON price table, inline or as a path to a file. Absent = SDK list price. */
+export function pricesFromEnv(value: string | undefined): PriceTable | undefined {
+	if (!value?.trim()) return undefined;
+	const text = value.trim().startsWith('{') ? value : readFileSync(value.trim(), 'utf8');
+	return parsePriceTable(text);
+}
+
 export function configFromEnv(): RunnerConfig {
 	claudeAccess(process.env);
 	return {
@@ -59,6 +68,7 @@ export function configFromEnv(): RunnerConfig {
 		model: process.env.CLAUDE_MODEL || undefined,
 		maxTurns: number('RUNNER_MAX_TURNS'),
 		maxBudgetUsd: number('RUNNER_MAX_BUDGET_USD'),
+		prices: pricesFromEnv(process.env.RUNNER_PRICES),
 	};
 }
 
